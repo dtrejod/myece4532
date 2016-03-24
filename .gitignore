@@ -1,6 +1,17 @@
-# Ignore all except main cpp
+# Ignore all 
 *
+
+# except main program for each lab.
 !.gitignore
 !.gitattributes
 !*main.c
+
+# except report documents in tex and pdf format and their images folder.
+# lab1 report is incomplete since it is a example for my first switch
+# to writing labs in latex.
+!*trejo_devin_001.tex 
+!*trejo_devin_001.pdf
+!*/images/*
+
+# Even if files are in sub-directories.
 !*/
