@@ -18,7 +18,7 @@
 
 \begin{document}
 
-% Title infomation
+% Title information
 \title{Linear Block Code Error Correction}
 \author{Devin Trejo \tabularnewline devin.trejo@temple.edu }
 \date{\today}
@@ -26,7 +26,13 @@
 
 \section{Summary}
 \label{sect:summary}
-
+We introduce the (6,3)~Hamming Linear Block Coding a error detecting and 
+correcting algorithm. For this lab we will parse a string into 3-bit sized
+messages and encoded into 6-bit codewords. We then transmit our codewords
+as characters to a Windows client from a PIC32 MCU. To simulate a noisy
+communication medium our client introduces random errors into our message
+and returns it back to the server. We show that the Hamming LBC is capable
+of correcting up to 1-bit in error for each received codeword.
 
 \section{Introduction}
 \label{sect:intro}
@@ -56,15 +62,9 @@ $$
 
 On the receiving side we first take our received codeword~($\vec{r}$) and 
 detect any errors in the received message. We do so by taking our 
-codeword and checking it against a parity~matrix~(H). The resulting 
-syndrome~($\vec{z}$) will point to the location of any errors in our 
-transmitted data. Note that our linear block code produces a 
-non-systematic codeword; meaning our message is not separated into k message
-bits and (n-k) parity bits. \cite{Balakrishnan2010} Instead our message is 
-embedded within our error-correcting code to produce a unique codeword. 
-%The 
-%benefits of having a non-systematic codeword is that is maximizes the free 
-%distance between each code so our error detection has increased performance. 
+codeword and checking it against a parity~matrix~(H). Note that our linear 
+block code produces a systematic codeword; meaning our message is separated 
+into k message bits and (n-k) parity bits. \cite{Balakrishnan2010} 
 
 \begin{equation}
     \vec{z}=\vec{r}H \text{ where,}
@@ -109,20 +109,36 @@ $$
 $$
 
 The error detector referenced by equation~\ref{eq:error_detector} is said to 
-detect an error when the syndrome~($\vec{z}$) in non-zero. To correct any 
-1-bit errors seen in the 6-bit received message requires we flip the bit
-seen in the position referenced by the non-zero syndrome. For example,
-if $\vec{z}=\begin{bmatrix} 0 & 1 & 0 \end{bmatrix}$ then we say corresponding
-bit 2 in $\vec{r}$ needs to be flipped.
+detect an error when the syndrome~($\vec{z}$) in non-zero.
+The error correction works by correcting the bit in the received codeword in 
+reference to a minimized \textbf{Hamming Distance} between a syndrome in the
+set of possible valid syndromes~($\vec{z'}$) and the calculated 
+syndrome~($\vec{z}$). We can calculate a set of possible valid 
+syndromes~($\vec{z'}$) by multiplying the parity~check~matrix~(H) by an
+identity (I); where the identity simulates codewords where one bit is flipped.
+The result tells us an error in the MSB (bit-6) maps to a syndrome of 
+$\vec{z}=\begin{bmatrix} 1 & 1 & 0 \end{bmatrix}$ and so on.
 
-The error correction works by looking at the \textbf{Hamming Distance} between
-two vectors $\vec{v_1}$ and $\vec{v_2}$. From our encoding technique we have
-a finite set of acceptable codewords possible. If the received 
-codeword~($\vec{r}$) is not in the set of possible codewords we know we have
-an error. To correct the received code word we look at the Hamming
-Distance between the received codeword~($\vec{r}$) and all codewords in the
-set of possible codewords. We correct the received codeword~($\vec{r}$ to a
-valid codeword which has a minimum Hamming distance. ~\cite{Stallings2014a}
+$$
+    H=I*H=
+    \begin{bmatrix}
+        1 & 0 & 0 & 0 & 0 & 0 \\
+        0 & 1 & 0 & 0 & 0 & 0 \\
+        0 & 0 & 1 & 0 & 0 & 0 \\
+        0 & 0 & 0 & 1 & 0 & 0 \\
+        0 & 0 & 0 & 0 & 1 & 0 \\
+        0 & 0 & 0 & 0 & 0 & 1 \\
+    \end{bmatrix}
+    *
+    \begin{bmatrix}
+        1 & 1 & 0 \\
+        1 & 1 & 1 \\
+        1 & 0 & 1 \\
+        1 & 0 & 0 \\
+        0 & 1 & 0 \\
+        0 & 0 & 1 \\
+    \end{bmatrix}
+$$
 
 After we have our codeword corrected ($\vec{r'}$), we can retrieve the 
 original message ($\vec{p_r}$) by using a (3,6) decoding~matrix~(R). 
@@ -168,7 +184,7 @@ For this lab we will transmit the message \textit{``EE is my avocation''}
 and set up a communication channel between a PIC32 Microchip MCU and 
 Windows desktop over Ethernet. The Windows machine will run a Visual Basic 
 application which will receive a message from the PIC32 server and 
-introduce random errors to simluate errors that may be introduced
+introduce random errors to simulate errors that may be introduced
 when transmitting over a noisy communications channel. VB client \
 \textit{Client2 v16B} will introduce at most 1-bit in error within a given
 message. VB Client \textit{Client3 v16} will introduce up to 10-bits in 
@@ -247,6 +263,150 @@ equation~\ref{eq:encoder}.
 
 \section{Discussion}
 \label{sect:discussion}
+
+To begin we need several functions that will allows us to create our 
+As will be seen in order to analyze our experiments, we send
+the PIC32 MCU server a a return message back. The returned message may
+have errors randomly distributed throughout as to simulate a noisy 
+communications channel. The server will receive the message and detect 
+and attempt to correct any errors. With the code provided 
+(see Appendix) a uncorrectable error will light up
+the PIC32's red LED (LED0). A correctable error will flash the PIC32's
+yellow LED (LED1) as it goes about correcting any errors. 
+
+We can use WireShark to analyze the packet transmitted from our server 
+PIC32 MCU to our VB client. We expect the first seven packets to be as 
+demonstrated in table~\ref{table:6-bit_packets_encoded}. The 42 packets
+that make up our overall transmission can be seen in highlighted
+figure~\ref{fig:piccontrol}. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_source_tx.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        PIC32 MCU $\rightarrow$ Windows Desktop}
+    \label{fig:piccontrol}
+\end{figure}
+
+\subsection{Control Case: No Errors Introduced}
+\label{sec:control}
+
+Next we want to ensure decoding of a message with no errors introduced 
+works as designed. The expected transmitted message from the 
+Windows Desktop with no errors will be the same
+as that seen when the message was initially transmitted to the Windows Desktop
+client referenced by figure~\ref{fig:piccontrol}. As can be seen 
+in the transmitted message from the Windows Desktop client, no errors were 
+introduced.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_vbtx_noerror_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        Windows Desktop $\rightarrow$ PIC32 MCU with No Error}
+    \label{fig:vbnoerror}
+\end{figure}
+
+The message echoed by the PIC32 server should be the same as that transmitted
+to it since there were no errors introduced. Comparing figure~\ref{fig:vbnoerror} 
+with figure~\ref{fig:picnoerror} we can see no discrepancies. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_pictx_noerror_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        PIC32 MCU $\rightarrow$ Windows Desktop with No Error}
+    \label{fig:picnoerror}
+\end{figure}
+
+\subsection{1-Bit Error}
+\label{sec:1biterror}
+
+Next we show that for one bit in error our Hamming error detector and 
+corrector will be able to detect any introduced errors. The error in
+this 1-bit error test was introduced into the 48th row of the 
+transmission. A 8-bit sequence of 0x00 was converted to 0x01. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_vbtx_1bit_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        Windows Desktop $\rightarrow$ PIC32 MCU with 1-Bit Error}
+    \label{fig:vb1error}
+\end{figure}
+
+The error highlighted in figure~\ref{fig:vb1error} can be seen corrected
+in the echoed message from the PIC32. In reality this introduced error
+effected one of the parity bits so our original message was still intact, but
+the test shows that LBC can even correct errors in the parity portion of
+a transmission. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_pictx_1bit_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        PIC32 MCU $\rightarrow$ Windows Desktop with 1-Bit Error}
+    \label{fig:pic1error}
+\end{figure}
+
+\subsection{Multiple Errors in Transmission}
+\label{sec:multierrors}
+
+Our last test will show that in extreme cases where more than one bit 
+in error in introduced to our transmission, our Hamming decoder has the
+capability to correct the error. In the next example we introduce 8 bit in
+error to the packet. There are two bit errors that occur in the two MSB of
+the packet. Recall that the two MSB are padded zeros, so these bit errors
+are ignored.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_vbtx_multibit_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        Windows Desktop $\rightarrow$ PIC32 MCU with 8-Bit Errors}
+    \label{fig:vb8error}
+\end{figure}
+
+The corrected message sent echoed by the server corrects the issues it could. 
+In the second byte, we can see how the second bit from the left was corrected
+back to a binary 1. Our third highlighted error was also corrected so it
+incorrect bit was flipped. Our forth byte sequence which contained an error
+was changed to all zeros. These is behavior coded for when an error is
+detected but could not be corrected. Since there were more than one bit and
+error in the message the receiver could  not correct the message. In this
+scenario typically we would have the receiver re-transmit the message. 
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=5.5in]{images/wireshark_pictx_multibit_packets.PNG}
+    \caption{WireShark Capture of 42 Packets Tx 
+        PIC32 MCU $\rightarrow$ Windows Desktop with 8-Bit Errors}
+    \label{fig:pic8error}
+\end{figure}
+
+As is seen in the two byte sequences that contained errors in the higher two
+MSB locations, our implementation is not at its peak efficiency. 
+Hypothetically our message size is $k=3$ and our codeword size is $n=6$, 
+we can say out $\text{\textbf{code rate}} =\frac{k}{n} = \frac{6}{3} = 
+\frac{1}{2}$. However, since we pad our codeword with two leading zeros it 
+can be said that our code rate decreases to $\text{code rate} = \frac{3}{8}$.
+
+The padding of zeros only causes our data rate to decrease. A way we could
+improve our Hamming linear block encoder/decoder is by fully utilizing the 
+entire length of our 8-bit packets. It will complicate the decoding process
+since it would require that we extract bits from other various packets to 
+construct our codeword.
+
+\section{Conclusion}
+\label{sect:conclusion} 
+We have introduce another form of error detection and correction that has 
+been proven to correct up to one in error. The Hamming linear block code 
+are useful in forwarding error correction to reduce the need for 
+retransmission of data corrupted by the transmission medium. The technique 
+is effective in correcting a message in its use of codewords which convert
+a message a sequence where the difference between each codeword is at least
+two bits. By maximizing the between messages we can improve the performance
+of this error detection and correction scheme.
 
 \bibliographystyle{plain}
 \bibliography{../../../Mendeley/data_computer_communications}

@@ -47,7 +47,7 @@ char getPacket(const char *myStr, int packetNum, int packetSize);
 int divideDown(int a, int b);
 char getEncodeCodeword (char message);
 char getDecodeCodeword (char codeword);
-int hammingErrorDetector(char codeword);
+char hammingErrorDetectorCorrector(char codeword);
 
 
 int main()
@@ -206,10 +206,10 @@ int main()
                     else if(rbfr[1]==84)
                     {
                         mPORTDClearBits(BIT_0);
-                        mPORTDSetBits(BIT_1);   // LED3=1
+                        mPORTDSetBits(BIT_2);   // LED3=1
                         send(clientSock, tbfr, tlen, 0);
                         DelayMsec(50);
-                        mPORTDClearBits(BIT_1);	// LED3=0
+                        mPORTDClearBits(BIT_2);	// LED3=0
                     }
                 mPORTDClearBits(BIT_0); // LED1=0
                 }
@@ -253,14 +253,14 @@ void hammingDecoder(char *recieveBuffer, int rlen)
 {
     int i;
     char codewordResized = 0x00;
-    char receievedMessage[rlen];
-    char z;
+    char receievedMessage;
+    char z = 0x00;
 
-    //for(i=0; i < rlen; i++)
-    //{
-        //z = hammingErrorDetector(recieveBuffer[i]);
-        //getDecodeCodeword(recieveBuffer[i], receievedMessage[i]); 
-    //}
+    for(i=0; i < rlen; i++)
+    {
+        recieveBuffer[i] = hammingErrorDetectorCorrector(recieveBuffer[i]);
+        receievedMessage = getDecodeCodeword(z); 
+    }
 }
 
 void hammingEncoder(const char *myStr, char *tbfr, int tlen) 
@@ -370,7 +370,7 @@ char getDecodeCodeword (char codeword)
     return message;
 }
 
-int hammingErrorDetector(char codeword)
+char hammingErrorDetectorCorrector(char codeword)
 {
     // Generator Matrix
     int H[CODEWORDLEN][PACKETLEN] = {{1, 1, 0},
@@ -398,10 +398,75 @@ int hammingErrorDetector(char codeword)
     }
 
     // check if syndrome is zero
-    if (syndrome != 0x00){
-        // attempt to fix 
+    if (syndrome != 0x00)
+    {
+        // if non-zero we say we have an error. We check to see if we can
+        // correct the codeword.
+        // Set led 1 (red) high
+        mPORTDSetBits(BIT_1);
+        DelayMsec(100);
+        // Bit 5 an error
+        if (syndrome == 0b00000110) 
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 5;
+        }
+
+        // Bit 4 an error
+        else if (syndrome == 0b00000111)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 4;
+        }
+        
+        // Bit 3 an error
+        else if (syndrome == 0b00000101)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 3;
+        }
+
+        // Bit 2 an error
+        else if (syndrome == 0b00000100)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 2;
+        }
+
+        // Bit 1 an error
+        else if (syndrome == 0b00000010)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 1;
+        }
+
+        // Bit 0 an error
+        else if (syndrome == 0b00000001)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 0;
+        }
+
+        // Otherwise there is an uncorrectable error. We set to zero
+        // for analysis purposes.
+        else{
+            mPORTDSetBits(BIT_0);
+            codeword = 0x00;
+        } 
+
     }
-    //if error corrected return false
-    return 0;
+    return codeword;
 
 }
