@@ -3,8 +3,8 @@
 //	MPLAB X C32 Compiler     PIC32MX795F512L
 //      Microchip DM320004 Ethernet Starter Board
 //
-// ECE4532 - Lab 3 - Even Parity Check 
-// Created on 20160308
+// ECE4532 - Lab 4 - Linear Block Code Error Correction
+// Created on 20160324
 // Author: Devin Trejo
 //	main.c
 
@@ -38,8 +38,16 @@
 
 #define PACKETLEN 3
 #define CODEWORDLEN 6
+#define MSGLEN 42
 
 void DelayMsec(unsigned int msec);
+void hammingDecoder(char *recieveBuffer, int rlen);
+void hammingEncoder(const char *myStr, char *tbfr, int tlen);
+char getPacket(const char *myStr, int packetNum, int packetSize);
+int divideDown(int a, int b);
+char getEncodeCodeword (char message);
+char getDecodeCodeword (char codeword);
+int hammingErrorDetector(char codeword);
 
 
 int main()
@@ -122,12 +130,11 @@ int main()
 
     // To find tlen we take the total number of bits minus the redundant
     // MSB zero and divide by our packet size rounded up.
-    tlen = ciel((len(myStr)*8-len(myStr))/PACKETLEN);
-
-    char transmitBuffer[tlen];
+    //tlen = ( (strlen(myStr)*8-strlen(myStr)) + PACKETLEN - 1 )/PACKETLEN;
+    tlen = MSGLEN;
+    char tbfr[MSGLEN];
     
-    evenParityEncoder(myStr, transmitBuffer, tlen);
-
+    hammingEncoder(myStr, tbfr, tlen);
     // Loop forever
     //
     while (1) 
@@ -200,7 +207,7 @@ int main()
                     {
                         mPORTDClearBits(BIT_0);
                         mPORTDSetBits(BIT_1);   // LED3=1
-                        send(clientSock, transmitBuffer, tlen, 0);
+                        send(clientSock, tbfr, tlen, 0);
                         DelayMsec(50);
                         mPORTDClearBits(BIT_1);	// LED3=0
                     }
@@ -211,7 +218,7 @@ int main()
                 else
                 {
                     // receive possible corrupted data
-                    evenParityDecoder(rbfr, rlen);
+                    hammingDecoder(rbfr, rlen);
 
                     //send data back across the socket 
                     // (for viewing in wireshark)
@@ -244,26 +251,86 @@ void DelayMsec(unsigned int msec)
 
 void hammingDecoder(char *recieveBuffer, int rlen)
 {
+    int i;
+    char codewordResized = 0x00;
+    char receievedMessage[rlen];
+    char z;
 
+    //for(i=0; i < rlen; i++)
+    //{
+        //z = hammingErrorDetector(recieveBuffer[i]);
+        //getDecodeCodeword(recieveBuffer[i], receievedMessage[i]); 
+    //}
+}
+
+void hammingEncoder(const char *myStr, char *tbfr, int tlen) 
+{
+    int i;
+    char messageResized = 0x00;
+    
+    for(i=0; i < tlen; i++)
+    {
+        messageResized = getPacket(myStr, i, PACKETLEN);
+        tbfr[i] = getEncodeCodeword(messageResized);
+    }
+}
+
+char getPacket(const char *myStr, int packetNum, int packetSize)
+{
+    // We return a char containing packetSize bits
+    char bitPacket = 0x00;
+
+    // We look to see at what bit interval our packet starts on
+
+    int stringBitStart = packetNum*packetSize;
+    int charBitStart = 6-(stringBitStart%7);
+    // loop tracker
+    signed int i, maskPos;
+
+    for(i=0; i < packetSize; i++)
+    {
+        // We create our own modulus by making sure negative numbers round
+        // down to the lower negative number.
+        if (charBitStart-i < 0) maskPos = divideDown(charBitStart-i,7);
+        else maskPos = (charBitStart-i)/7;
+        maskPos = (charBitStart-i)-7*maskPos;
+        // We use seven since our char MSB is irrelevant
+        bitPacket |= ((myStr[(stringBitStart+i)/7]
+                        & (0x01 << maskPos))
+                                >> maskPos)
+                                << (packetSize-i-1);
+    }
+
+    return bitPacket;
+}
+int divideDown(int a, int b)
+{
+    int r=a/b;
+    if (r<0 && r*b!=a)
+        return r;
+    return r-1;
 }
 
 // Takes a first PACKETLEN bits in a char and converts it to a 8 bit char
 // encoded codeword
-char generateCodeword (char *message){
-
+char getEncodeCodeword (char message)
+{
     // Generator Matrix
     int G[PACKETLEN][CODEWORDLEN] = {{1, 0, 0, 1, 1, 0},
-                                     {0, 1, 0, 1, 1, 0},
+                                     {0, 1, 0, 1, 1, 1},
                                      {0, 0, 1, 1, 0 ,1}};
     int i, j;
     char codeword = 0x00;
-    codewordPos = 8-CODEWORDLEN;
+    int codewordPos = CODEWORDLEN -1;
 
     // Matrix math at the bit level.
-    for(j=0; j < CODEWORDLEN; j++){
+    for(j=0; j < CODEWORDLEN; j++)
+    {
         for(i=0; i < PACKETLEN; i++){
             // Exclusive OR is same as adding two binary bits
-            codeword ^= (((message & (0x01 << i)) >> i)* G[i][j]) << codewordPos;
+            codeword ^= (((message & (0x01  << PACKETLEN-1-i)) 
+                                            >> PACKETLEN-1-i)* G[i][j]) 
+                                            << codewordPos;
         }
         // Move codeword position
         codewordPos--;
@@ -274,7 +341,8 @@ char generateCodeword (char *message){
 
 // Takes a code of CODEWORDLEN bits in a char and converts it to a 
 // PACKETLEN bit ASCII decoded char
-char decodeCodeword (char *codeword){
+char getDecodeCodeword (char codeword)
+{
 
     // Generator Matrix
     int R[CODEWORDLEN][PACKETLEN] = {{1, 0, 0},
@@ -285,13 +353,16 @@ char decodeCodeword (char *codeword){
                                      {0, 0, 0}};
     int i, j;
     char message = 0x00;
-    messagePos = 8-PACKETLEN;
+    int messagePos = PACKETLEN -1;
 
     // Matrix math at the bit level.
-    for(j=0; j < PACKETLEN; j++){
+    for(j=0; j < PACKETLEN; j++)
+    {
         for(i=0; i < CODEWORDLEN; i++){
             // Exclusive OR is same as adding two binary bits
-            message ^= (((codeword & (0x01 << i)) >> i)* R[i][j]) << messagePos;
+            message ^= (((codeword & (0x01  << CODEWORDLEN-1-i)) 
+                                            >> CODEWORDLEN-1-i)* R[i][j]) 
+                                            << messagePos;
         }
         // Move codeword position
         messagePos--;
@@ -299,7 +370,8 @@ char decodeCodeword (char *codeword){
     return message;
 }
 
-int hammingErrorDetector(char *codeword){
+int hammingErrorDetector(char codeword)
+{
     // Generator Matrix
     int H[CODEWORDLEN][PACKETLEN] = {{1, 1, 0},
                                      {1, 1, 1},
@@ -310,13 +382,16 @@ int hammingErrorDetector(char *codeword){
 
     int i, j;
     char syndrome = 0x00;
-    syndromePos = 8-PACKETLEN;  
+    int syndromePos = PACKETLEN-1;  
 
     // Matrix math at the bit level.
-    for(j=0; j < PACKETLEN; j++){
+    for(j=0; j < PACKETLEN; j++)
+    {
         for(i=0; i < CODEWORDLEN; i++){
             // Exclusive OR is same as adding two binary bits
-            syndrome ^= (((codeword & (0x01 << i)) >> i)* H[i][j]) << syndromePos;
+            syndrome ^= (((codeword & (0x01 << CODEWORDLEN-1-i)) 
+                                            >> CODEWORDLEN-1-i)* H[i][j]) 
+                                            << syndromePos;
         }
         // Move codeword position
         syndromePos--;
@@ -329,15 +404,4 @@ int hammingErrorDetector(char *codeword){
     //if error corrected return false
     return 0;
 
-}
-
-void hammingEncoder(const char *myStr, char *transmitBuffer, int tlen) 
-{
-    int i;
-    int j = 0;
-    int m = 0;
-
-    for(i=0; i < tlen; i++){
-        transmitbuffer[i] = generateCodeword(messageBitSized);
-    }
 }

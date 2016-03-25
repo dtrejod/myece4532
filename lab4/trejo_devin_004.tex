@@ -31,13 +31,14 @@
 \section{Introduction}
 \label{sect:intro}
 \subsection{Hamming Linear Block Encoding/Decoding Theory}
+\label{sec:theory}
 The Hamming linear block code is a forward error detection and correction 
 method where the original message is encoded to include more symbols to 
 add redundancy to the original message. The process allows the receiver of
 the message to check and attempt to correct errors introduced by a 
-noisy communications channel. In this lab we will use a (6,3)~Hamming~code~(G)
-which we will transform a 3-bit messages~($\vec{m}$) into 6-bit 
-codewords~($\vec{x}$).
+noisy communications channel. In this lab we will use a (6,3)~Hamming code
+generator~matrix~(G) which we will transform a 3-bit messages~($\vec{m}$) 
+into 6-bit codewords~($\vec{x}$).
 
 \begin{equation}
     \vec{x}=\vec{p}G \text{ where,}
@@ -58,7 +59,7 @@ detect any errors in the received message. We do so by taking our
 codeword and checking it against a parity~matrix~(H). The resulting 
 syndrome~($\vec{z}$) will point to the location of any errors in our 
 transmitted data. Note that our linear block code produces a 
-non-systematic codeword; meaning our message is not seperated into k message
+non-systematic codeword; meaning our message is not separated into k message
 bits and (n-k) parity bits. \cite{Balakrishnan2010} Instead our message is 
 embedded within our error-correcting code to produce a unique codeword. 
 %The 
@@ -89,12 +90,39 @@ $$
              \cite{Balakrishnan2010}}
 \end{figure}
 
+The generator~matrix~(G) is constructed from an identity matrix of size 
+$k\times k$ concatenated with a matrix A of size $k\times (n-k)$ to the 
+left. If we take matrix A we can create our parity~matrix~(H) by 
+concatenating it with a identity matrix of size $(n-k)\times (n-k)$ on the
+bottom.
+
+$$
+    G_{kxn}=
+    \begin{bmatrix}
+        I_{k\times k} & | & A_{k\times (n-k)}
+    \end{bmatrix}
+    \quad
+    H_{nxk}=
+    \begin{bmatrix}
+        A_{k\times (n-k)} \\ I_{(n-k)\times (n-k)}
+    \end{bmatrix}
+$$
+
 The error detector referenced by equation~\ref{eq:error_detector} is said to 
 detect an error when the syndrome~($\vec{z}$) in non-zero. To correct any 
 1-bit errors seen in the 6-bit received message requires we flip the bit
 seen in the position referenced by the non-zero syndrome. For example,
 if $\vec{z}=\begin{bmatrix} 0 & 1 & 0 \end{bmatrix}$ then we say corresponding
-bit 2 in $\vec{r}$ needs to be flipped. 
+bit 2 in $\vec{r}$ needs to be flipped.
+
+The error correction works by looking at the \textbf{Hamming Distance} between
+two vectors $\vec{v_1}$ and $\vec{v_2}$. From our encoding technique we have
+a finite set of acceptable codewords possible. If the received 
+codeword~($\vec{r}$) is not in the set of possible codewords we know we have
+an error. To correct the received code word we look at the Hamming
+Distance between the received codeword~($\vec{r}$) and all codewords in the
+set of possible codewords. We correct the received codeword~($\vec{r}$ to a
+valid codeword which has a minimum Hamming distance. ~\cite{Stallings2014a}
 
 After we have our codeword corrected ($\vec{r'}$), we can retrieve the 
 original message ($\vec{p_r}$) by using a (3,6) decoding~matrix~(R). 
@@ -135,6 +163,7 @@ The error detection~(e) is given by equation~\ref{eq:error_detection}.
 \end{equation}
 
 \subsection{Hamming Linear Block Encoding/Decoding Implementation}
+\label{sec:implementation}
 For this lab we will transmit the message \textit{``EE is my avocation''} 
 and set up a communication channel between a PIC32 Microchip MCU and 
 Windows desktop over Ethernet. The Windows machine will run a Visual Basic 
@@ -174,17 +203,17 @@ $$
         \toprule
         100 & 010 & 110 & 001 & 011 & 000 & 000 \tabularnewline
         \midrule
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet0}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet1}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet2}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet3}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet4}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet5}}} & 
-        \multicolumn{1}{|c|}{\textit{\textbf{Packet6}}} \tabularnewline
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_0}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_1}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_2}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_3}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_4}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_5}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{p_6}$}}} \tabularnewline
         \bottomrule
     \end{tabularx}
-    \caption{3-Bit Message Composition for First 3 Characters Before Encoding}
-    \label{table:3-bit_message_no_encoding}   
+    \caption{3-Bit Message Composition for First 3 Characters}
+    \label{table:3-bit_messages}   
 \end{table}
 
 Our overall message is 18 characters in length. Distributing our 18 
@@ -192,7 +221,29 @@ characters into 7 packets of length 3-bits produces 42 packets.
 Those 42 packets will next be encoded using our (6,3)~Hamming 
 linear block encoder to produce packets of 6-bits. Finally, we will 
 pad each 6-bit packet with two leading zeros and send it as a 8-bit ASCII 
-character. 
+character. The final transmitted packet sequence for the first 3 characters 
+are shown in table~\ref{table:6-bit_packets_encoded} by applying 
+equation~\ref{eq:encoder}.
+
+\begin{table}[H]
+    \centering
+    \begin{tabularx}{\textwidth}{|*{7}{>{\centering}X|}}
+        \toprule
+        0010 0110 & 0001 0111 & 0011 0001 & 
+        0000 1101 & 0001 1010 & 0010 0110 & 0000 0000 \tabularnewline
+        \midrule
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_0}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_1}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_2}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_3}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_4}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_5}$}}} & 
+        \multicolumn{1}{|c|}{\textit{\textbf{$\vec{x_6}$}}} \tabularnewline
+        \bottomrule
+    \end{tabularx}
+    \caption{6-Bit Codewords Composition for First 3 Characters}
+    \label{table:6-bit_packets_encoded}   
+\end{table}
 
 \section{Discussion}
 \label{sect:discussion}
@@ -202,6 +253,6 @@ character.
 
 \section*{Appendix}
 \label{sect:appendix}
-Main program runner source code available on GitHub:
-
+Main program source code available on my GitHub: \\
+\url{https://github.com/dtrejod/myece4532/blob/master/lab4/ECE4532%20PIC32%20BSD%20Server/source/main.c}
 \end{document}
