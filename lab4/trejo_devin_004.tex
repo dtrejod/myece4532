@@ -2,7 +2,7 @@
 %
 \documentclass[12pt]{article}
 % General packages
-\usepackage{amsmath, graphicx, float, tabularx, booktabs}
+\usepackage{amsmath, graphicx, float, tabularx, booktabs, color}
 % For coloring tables
 %\usepackage[table]{xcolor}
 % For adjusting margin size
@@ -10,11 +10,33 @@
 % For setting bookmarks on pdf export
 \usepackage[bookmarks,bookmarksopen,bookmarksdepth=2]{hyperref} 
 \usepackage{cite}
+\usepackage{listings}
 
 % Image path location
 \graphicspath{ {images/} }
 
-%\rowcolors{2}{gray!25}{white}
+%Define Colors
+\definecolor{dkgreen}{rgb}{0,0.6,0}
+\definecolor{gray}{rgb}{0.5,0.5,0.5}
+\definecolor{mauve}{rgb}{0.58,0,0.82}
+
+% Color Code
+\lstset{frame=tb,
+  language=ruby,
+  aboveskip=3mm,
+  belowskip=3mm,
+  showstringspaces=false,
+  columns=flexible,
+  basicstyle={\small\ttfamily},
+  numbers=none,
+  numberstyle=\tiny\color{gray},
+  keywordstyle=\color{blue},
+  commentstyle=\color{dkgreen},
+  stringstyle=\color{mauve},
+  breaklines=true,
+  breakatwhitespace=true,
+  tabsize=4
+}
 
 \begin{document}
 
@@ -415,4 +437,245 @@ of this error detection and correction scheme.
 \label{sect:appendix}
 Main program source code available on my GitHub: \\
 \url{https://github.com/dtrejod/myece4532/blob/master/lab4/ECE4532%20PIC32%20BSD%20Server/source/main.c}
+
+\begin{lstlisting}[language=c, 
+caption=Hamming Encoder Function,
+label=lst:hamencoder]
+void hammingEncoder(const char *myStr, char *tbfr, int tlen) 
+{
+    int i;
+    char messageResized = 0x00;
+    
+    for(i=0; i < tlen; i++)
+    {
+        messageResized = getPacket(myStr, i, PACKETLEN);
+        tbfr[i] = getEncodeCodeword(messageResized);
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=c, 
+caption=Hamming Decoder Function,
+label=lst:hamdecoder]
+void hammingDecoder(char *recieveBuffer, int rlen)
+{
+    int i;
+    char codewordResized = 0x00;
+    char receievedMessage;
+    char z = 0x00;
+
+    for(i=0; i < rlen; i++)
+    {
+        recieveBuffer[i] = hammingErrorDetectorCorrector(recieveBuffer[i]);
+        receievedMessage = getDecodeCodeword(z); 
+    }
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=c, 
+caption=Packet Creator (Creates 3-bit Packet Sizes from Characters),
+label=lst:getpacket]
+char getPacket(const char *myStr, int packetNum, int packetSize)
+{
+    // We return a char containing packetSize bits
+    char bitPacket = 0x00;
+
+    // We look to see at what bit interval our packet starts on
+
+    int stringBitStart = packetNum*packetSize;
+    int charBitStart = 6-(stringBitStart%7);
+    // loop tracker
+    signed int i, maskPos;
+
+    for(i=0; i < packetSize; i++)
+    {
+        // We create our own modulus by making sure negative numbers round
+        // down to the lower negative number.
+        if (charBitStart-i < 0) maskPos = divideDown(charBitStart-i,7);
+        else maskPos = (charBitStart-i)/7;
+        maskPos = (charBitStart-i)-7*maskPos;
+        // We use seven since our char MSB is irrelevant
+        bitPacket |= ((myStr[(stringBitStart+i)/7]
+                        & (0x01 << maskPos))
+                                >> maskPos)
+                                << (packetSize-i-1);
+    }
+
+    return bitPacket;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=c, 
+caption=Create codeword from 3-Bit Message,
+label=lst:encodercoderword]
+// Takes a first PACKETLEN bits in a char and converts it to a 8 bit char
+// encoded codeword
+char getEncodeCodeword (char message)
+{
+    // Generator Matrix
+    int G[PACKETLEN][CODEWORDLEN] = {{1, 0, 0, 1, 1, 0},
+                                     {0, 1, 0, 1, 1, 1},
+                                     {0, 0, 1, 1, 0 ,1}};
+    int i, j;
+    char codeword = 0x00;
+    int codewordPos = CODEWORDLEN -1;
+
+    // Matrix math at the bit level.
+    for(j=0; j < CODEWORDLEN; j++)
+    {
+        for(i=0; i < PACKETLEN; i++){
+            // Exclusive OR is same as adding two binary bits
+            codeword ^= (((message & (0x01  << PACKETLEN-1-i)) 
+                                            >> PACKETLEN-1-i)* G[i][j]) 
+                                            << codewordPos;
+        }
+        // Move codeword position
+        codewordPos--;
+    }
+    return codeword;
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=c, 
+caption=Check Message Integrity using Parity Matrix,
+label=lst:hammingerrordetect]
+char hammingErrorDetectorCorrector(char codeword)
+{
+    // ParityMatrix Matrix
+    int H[CODEWORDLEN][PACKETLEN] = {{1, 1, 0},
+                                     {1, 1, 1},
+                                     {1, 0, 1},
+                                     {1, 0, 0},
+                                     {0, 1, 0},
+                                     {0, 0, 1}};
+
+    int i, j;
+    char syndrome = 0x00;
+    int syndromePos = PACKETLEN-1;  
+
+    // Matrix math at the bit level.
+    for(j=0; j < PACKETLEN; j++)
+    {
+        for(i=0; i < CODEWORDLEN; i++){
+            // Exclusive OR is same as adding two binary bits
+            syndrome ^= (((codeword & (0x01 << CODEWORDLEN-1-i)) 
+                                            >> CODEWORDLEN-1-i)* H[i][j]) 
+                                            << syndromePos;
+        }
+        // Move codeword position
+        syndromePos--;
+    }
+
+    // check if syndrome is zero
+    if (syndrome != 0x00)
+    {
+        // if non-zero we say we have an error. We check to see if we can
+        // correct the codeword.
+        // Set led 1 (red) high
+        mPORTDSetBits(BIT_1);
+        DelayMsec(100);
+        // Bit 5 an error
+        if (syndrome == 0b00000110) 
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 5;
+        }
+
+        // Bit 4 an error
+        else if (syndrome == 0b00000111)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 4;
+        }
+        
+        // Bit 3 an error
+        else if (syndrome == 0b00000101)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 3;
+        }
+
+        // Bit 2 an error
+        else if (syndrome == 0b00000100)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 2;
+        }
+
+        // Bit 1 an error
+        else if (syndrome == 0b00000010)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 1;
+        }
+
+        // Bit 0 an error
+        else if (syndrome == 0b00000001)
+        {
+            // Reset LED saying we fixed the error
+            mPORTDClearBits(BIT_1);
+            DelayMsec(100);
+            codeword ^= 0x01 << 0;
+        }
+
+        // Otherwise there is an uncorrectable error. We set to zero
+        // for analysis purposes.
+        else{
+            mPORTDSetBits(BIT_0);
+            codeword = 0x00;
+        } 
+
+    }
+    return codeword;
+
+}
+\end{lstlisting}
+
+\begin{lstlisting}[language=c, 
+caption=Decode Codeword into 3-Bit Message,
+label=lst:decodercoderword]
+// Takes a code of CODEWORDLEN bits in a char and converts it to a 
+// PACKETLEN bit ASCII decoded char
+char getDecodeCodeword (char codeword)
+{
+
+    // Decoder Matrix
+    int R[CODEWORDLEN][PACKETLEN] = {{1, 0, 0},
+                                     {0, 1, 0},
+                                     {0, 0, 1},
+                                     {0, 0, 0},
+                                     {0, 0, 0},
+                                     {0, 0, 0}};
+    int i, j;
+    char message = 0x00;
+    int messagePos = PACKETLEN -1;
+
+    // Matrix math at the bit level.
+    for(j=0; j < PACKETLEN; j++)
+    {
+        for(i=0; i < CODEWORDLEN; i++){
+            // Exclusive OR is same as adding two binary bits
+            message ^= (((codeword & (0x01  << CODEWORDLEN-1-i)) 
+                                            >> CODEWORDLEN-1-i)* R[i][j]) 
+                                            << messagePos;
+        }
+        // Move codeword position
+        messagePos--;
+    }
+    return message;
+}
+\end{lstlisting}
+
+
+
 \end{document}
