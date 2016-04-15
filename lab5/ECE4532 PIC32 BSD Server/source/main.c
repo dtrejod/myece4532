@@ -22,7 +22,7 @@
 
 
 #include <string.h>
-
+#include <time.h>
 #include <plib.h>		// PIC32 Peripheral library functions and macros
 #include "tcpip_bsd_config.h"	// in \source
 #include <TCPIP-BSD\tcpip_bsd.h>
@@ -39,10 +39,10 @@
 // Project specific constants
 #define MSGLEN 26
 #define DATALEN 16
-#define LENP 3
-#define LENM 7
-#define PROBERR 0.1
-#define ACKTIMEOUT 1000 // InMSEC
+#define LENP 4
+#define LENM 10
+#define PROBERR 0.5
+#define ACKTIMEOUT 5000 // InMSEC
 
 // We create structs for our message format
 // For explanation of pragma see:
@@ -67,6 +67,8 @@ struct myDataPacket
 
 void DelayMsec(unsigned int msec);
 void generateAlphabet(struct myDataPacket *tbfrData, int tlen) ;
+double randMToN(double M, double N);
+void shuffle(uint8_t *array, size_t n);
 
 int main()
 {
@@ -75,7 +77,7 @@ int main()
     IP_ADDR curr_ip, ip;
 
     // loop variable
-    int i = 0;
+    int i,j;
     int temp; 
 
     // Delay interaction counter
@@ -86,19 +88,26 @@ int main()
     
     // Initialize the buffers for server
     struct myDataPacket *rbfrData;
-    struct myACK rbfrAck;
+    struct myACK rbfrAck[LENP];
     char rbfrRaw[256] = {0};
-    uint8_t rbfrDataTracker[LENP];
+    uint8_t rbfrDataTracker[LENP] = {NULL};
     uint8_t rbfrDataTrackerI = 0;
 
     // Initialize the buffers for client
     struct myDataPacket tbfrData[MSGLEN];
     struct myACK *tbfrAck;
-    uint8_t tbfrDataTracker[LENP+LENM];
+    struct myDataPacket tbfr[LENP];
+    uint8_t tbfrDataTracker[LENP+LENM] = {NULL};
     uint8_t tbfrDataTrackerI = 0;
-    uint8_t tbfrAckTracker[LENP+LENM];
-    uint8_t tbfrAckTrackerI = 0;
-
+    uint8_t tbfrAckTracker[LENP+LENM] = {NULL};
+    int tbfrAckTrackerI = 0;
+    uint8_t tbfrSeqTracker = 0;
+    uint8_t selectiveRepeat = 0;
+    uint8_t flag;
+    uint8_t testStarted = 0;
+    int msgSent = 0;
+    int offset;
+    
     // Socket struct descriptor
     struct sockaddr_in addr;
     int addrlen = sizeof (struct sockaddr_in);
@@ -191,14 +200,6 @@ int main()
         } 
         else 
         {
-            // Check for ACK timeout
-            if (delayCount*10 > ACKTIMEOUT)
-            {
-                // Retransmit any packets we haven't received ACKs back
-                // for yet
-                DelayMsec(1);
-            }
-
             // We are connected to a client already. We start
             // by receiving the message being sent by the client
             rlen = recvfrom(clientSock, rbfrRaw, sizeof (rbfrRaw), 0, NULL,
@@ -209,42 +210,114 @@ int main()
             {
                 // Reset Delay Count
                 delayCount = 0;
-                // If the received message first byte is '02' it signifies
-                // a start of message
-                if (rbfrRaw[0] == 2) 
-                {
-                    // Check to see if message begins with
-                    // '0271' signifying message is a global reset
-                    // We use this as a signal to start the lab
-                    // experiment. 
-                    if (rbfrRaw[1] == 71) 
-                    {                        
-                        // Set sequence number P to zero and send LENP 
-                        // packets
-                        for(i=0; i < LENP; i++)
+                // Check to see if message begins with
+                // '0271' signifying message is a global reset
+                // We use this as a signal to start the lab
+                // experiment. 
+                if ((testStarted == 0) && (rbfrRaw[0] == 02) && 
+                        (rbfrRaw[1] == 71))
+                {                        
+                    // Reset Frame Sent Variables
+                    tbfrDataTrackerI = 0;
+                    tbfrAckTrackerI = 0;
+
+                    // Reset Sequence Number
+                    tbfrSeqTracker = 1;
+
+                    // Reset total msg sent counter
+                    msgSent = 0;
+                    testStarted = 1;
+
+                    for(tbfrDataTrackerI=0; tbfrDataTrackerI < LENP; 
+                        tbfrDataTrackerI++)
+                    {
+                        // Check for seq rollover
+                        if(tbfrSeqTracker >= LENM)
                         {
-                            tbfrData[i].sequence = i;
-                            tbfrDataTracker[tbfrDataTrackerI++] = 
-                                tbfrData[i].sequence;
-                            mPORTDClearBits(BIT_0);
-                            mPORTDSetBits(BIT_2);   // LED3=1
-                            send(clientSock, &tbfrData[i], 
-                                sizeof(struct myDataPacket), 0);
-                            mPORTDClearBits(BIT_2); // LED3=0 
+                            tbfrSeqTracker = 1;
                         }
-                        DelayMsec(50);
+
+                        // Adjust offset
+                        if(tbfrDataTrackerI==0) offset=msgSent;
+                        // Populate sequence number
+                        tbfrData[tbfrDataTrackerI+offset].sequence = 
+                            tbfrSeqTracker++;
+
+                        // We keep track of the seq numbers we do send
+                        tbfrDataTracker[tbfrDataTrackerI] = 
+                            tbfrData[tbfrDataTrackerI+offset].sequence;
+
+                        // Copy tbfr over to 
+                        tbfr[tbfrDataTrackerI] = 
+                            tbfrData[tbfrDataTrackerI+offset];
+
+                        // Keep track of how much of the msg has been
+                        // sent
+                        msgSent++;
+
+                        if (msgSent > MSGLEN)
+                        {
+                            break;
+                        } 
                     }
+                    mPORTDClearBits(BIT_0);
+                    mPORTDSetBits(BIT_2);   // LED3=1
+                    send(clientSock, tbfr, 
+                        sizeof(struct myDataPacket)*tbfrDataTrackerI, 0);
+                    mPORTDClearBits(BIT_2); // LED3=0
+                    DelayMsec(100);
                 }
                 // If not prefixed we say client is sending back 
                 // we need to parse to determine if message is an ACK or
                 // the received data
-                else
+                else if (testStarted==1)
                 {
                     // Check what time of message was revived based on its
                     // size
-                    // First check if revived is an myACK
-                    if (rlen%sizeof(struct myACK)==0)
+                    // Check if received is an myDataPacket
+                    if (rlen%sizeof(struct myDataPacket)==0)
                     {
+                        i=0;
+                        // Reset data packets received
+                        rbfrDataTrackerI = 0;
+                        
+                        // Parse the receive buffer until end of buffer
+                        while (sizeof(struct myDataPacket)*i < rlen)
+                        {
+                            // Convert the received data into a dataPacket 
+                            // struct
+                            rbfrData = (struct myDataPacket *) rbfrRaw+(i++);
+                            // Retrieve sequence number and store
+                            rbfrDataTracker[rbfrDataTrackerI++] = 
+                                rbfrData->sequence;
+                        }
+                        // Shuffle order of rbfrDataTracker ACKs we will send 
+                        // back
+                        shuffle(rbfrDataTracker, rbfrDataTrackerI);
+                        
+                        j=0;
+                        // Set sequence number P to zero and send LENP packets
+                        for(i=0; i < rbfrDataTrackerI; i++)
+                        {
+                            // Send ACK for Random number of packets
+                            if (randMToN(0.0,1.0) >= PROBERR)
+                            {
+                                rbfrAck[j].sequence = rbfrDataTracker[i];
+                                rbfrAck[j].ackChar = 0x06;
+                                j++;
+                            }
+                        }
+                        mPORTDClearBits(BIT_0);
+                        mPORTDSetBits(BIT_2);   // LED3=1
+                        send(clientSock, rbfrAck, 
+                            sizeof(struct myACK)*j, 0);
+                        mPORTDClearBits(BIT_2); // LED3=0
+                        DelayMsec(100);
+                    }
+                    // Check if received is an myACK
+                    else if (rlen%sizeof(struct myACK)==0)
+                    {
+                        // Randomize the 
                         // Parse the receive buffer for myACK until end of
                         // buffer
                         i=0;
@@ -257,36 +330,62 @@ int main()
                             tbfrAckTracker[tbfrAckTrackerI++] = 
                                 tbfrAck->sequence;
                         }
-                        temp = tbfrAck->sequence;
+                        // Check if we recieved all the frames we orignally
+                        // sent. If yes transfer the next M frames
+                        if (tbfrAckTrackerI >= tbfrDataTrackerI)
+                        {
+                            if (msgSent > MSGLEN)
+                            {
+                                testStarted=0;
+                            }
+                            else 
+                            {
+                                // Check if there are more frames to send
+                                // Reset Frame Sent Variables
+                                tbfrAckTrackerI = 0;
+
+                                for(tbfrDataTrackerI=0; tbfrDataTrackerI < LENP; 
+                                    tbfrDataTrackerI++)
+                                {
+                                    // Check for seq rollover
+                                    if(tbfrSeqTracker >= LENM)
+                                    {
+                                        tbfrSeqTracker = 1;
+                                    }
+
+                                    // Adjust offset
+                                    if(tbfrDataTrackerI==0) offset=msgSent;
+                                    // Populate sequence number
+                                    tbfrData[tbfrDataTrackerI+offset].sequence = 
+                                        tbfrSeqTracker++;
+
+                                    // We keep track of the seq numbers we do send
+                                    tbfrDataTracker[tbfrDataTrackerI] = 
+                                        tbfrData[tbfrDataTrackerI+offset].sequence;
+
+                                    // Copy tbfr over to 
+                                    tbfr[tbfrDataTrackerI] = 
+                                        tbfrData[tbfrDataTrackerI+offset];
+
+                                    // Keep track of how much of the msg has been
+                                    // sent
+                                    msgSent++;
+
+                                    if (msgSent > MSGLEN)
+                                    {
+                                        break;
+                                    }
+                                }
+                                mPORTDClearBits(BIT_0);
+                                mPORTDSetBits(BIT_2);   // LED3=1
+                                send(clientSock, tbfr, 
+                                    sizeof(struct myDataPacket)*tbfrDataTrackerI, 0);
+                                mPORTDClearBits(BIT_2); // LED3=0
+
+                                DelayMsec(100);
+                            }
+                        }
                     }                    
-                    // Check if received is an myDataPacket
-                    else if (rlen%sizeof(struct myDataPacket)==0)
-                    {
-                        i=0;
-                        // Parse the receive buffer until end of buffer
-                        while (sizeof(struct myDataPacket)*i < rlen)
-                        {
-                            // Convert the received data into a dataPacket 
-                            // struct
-                            rbfrData = (struct myDataPacket *) rbfrRaw+(i++);
-                            // Retrieve sequence number and store
-                            rbfrDataTracker[rbfrDataTrackerI++] = 
-                                rbfrData->sequence;
-                        }
-                        // Set sequence number P to zero and send LENP packets
-                        for(i=0; i < rbfrDataTrackerI; i++)
-                        {
-                           rbfrAck.sequence = rbfrDataTracker[i];
-                           rbfrAck.ackChar = 0x06;
-                           mPORTDClearBits(BIT_0);
-                           mPORTDSetBits(BIT_2);   // LED3=1
-                           send(clientSock, &rbfrAck, 
-                               sizeof(struct myACK), 0);
-                           mPORTDClearBits(BIT_2); // LED3=0 
-                        }
-                        rbfrDataTrackerI = 0;
-                        DelayMsec(50);
-                    }
                 }
             }
             else if (rlen < 0) 
@@ -297,11 +396,47 @@ int main()
                 clientSock = SOCKET_ERROR;
             }
 
-            // If rlen is zero length
-            else
+            // If rlen is zero length we increment delay count
+            else if (testStarted == 1)
             {
                 DelayMsec(10);
                 delayCount++;
+                
+                // Check for ACK timeout
+                if (delayCount*10 > ACKTIMEOUT)
+                {
+                    // Retransmit any packets we haven't received ACKs back
+                    // for yet
+                    delayCount = 0;
+
+                    // Reset selective repeat
+                    selectiveRepeat = 0;
+
+                    // Set sequence number P to zero and send LENP 
+                    // packets
+                    for(i=0; i < tbfrDataTrackerI; i++)
+                    {
+                        flag = 0;
+                        for(j=0; j< tbfrAckTrackerI; j++)
+                        {
+                            if(tbfrDataTracker[i]==tbfrAckTracker[j])
+                            {
+                                flag = 1;
+                                break;
+                            }
+                        }
+                        if (flag == 0)
+                        {
+                            tbfr[selectiveRepeat++] = tbfr[i];
+                        }
+                    }
+                    mPORTDClearBits(BIT_0);
+                    mPORTDSetBits(BIT_2);   // LED3=1
+                    send(clientSock, tbfr, 
+                        sizeof(struct myDataPacket)*selectiveRepeat, 0);
+                    mPORTDClearBits(BIT_2); // LED3=0 
+                    DelayMsec(100);              
+                }
             }
         }   
     }
@@ -333,3 +468,22 @@ void generateAlphabet(struct myDataPacket *tbfrData, int tlen)
     }
 }
 
+double randMToN(double M, double N)
+{
+    return M + (rand() / ( RAND_MAX / (N-M) ) ) ;  
+}
+
+void shuffle(uint8_t *array, size_t n)
+{
+    if (n > 1) 
+    {
+        size_t i;
+        for (i = 0; i < n - 1; i++) 
+        {
+          size_t j = i + rand() / (RAND_MAX / (n - i) + 1);
+          int t = array[j];
+          array[j] = array[i];
+          array[i] = t;
+        }
+    }
+}
