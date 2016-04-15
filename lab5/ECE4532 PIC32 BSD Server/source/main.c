@@ -42,6 +42,7 @@
 #define LENP 3
 #define LENM 7
 #define PROBERR 0.1
+#define ACKTIMEOUT 1000 // InMSEC
 
 // We create structs for our message format
 // For explanation of pragma see:
@@ -62,7 +63,7 @@ struct myDataPacket
     uint8_t sequence;
     char data[DATALEN];
 };
-#pragma pack(0)// turn packing off
+#pragma pack(0) // turn packing off
 
 void DelayMsec(unsigned int msec);
 void generateAlphabet(struct myDataPacket *tbfrData, int tlen) ;
@@ -76,26 +77,27 @@ int main()
     // loop variable
     int i = 0;
     int temp; 
+
+    // Delay interaction counter
+    int delayCount = 0;    
     
     // Initialize buffer length variables
     int tlen, rlen;
     
-    uint8_t recvP = 0;
-    uint8_t transP, transM, recvM;
-    uint8_t sentSeq[LENM], recvSeq[LENM];
-    
     // Initialize the buffers for server
     struct myDataPacket *rbfrData;
     struct myACK rbfrAck;
-    char rbfrRaw[256];
-    
-    // Clear rbfrRaw
-    memset(rbfrRaw, 0, 256);
+    char rbfrRaw[256] = {0};
+    uint8_t rbfrDataTracker[LENP];
+    uint8_t rbfrDataTrackerI = 0;
 
     // Initialize the buffers for client
-    // We create our transmission data
     struct myDataPacket tbfrData[MSGLEN];
     struct myACK *tbfrAck;
+    uint8_t tbfrDataTracker[LENP+LENM];
+    uint8_t tbfrDataTrackerI = 0;
+    uint8_t tbfrAckTracker[LENP+LENM];
+    uint8_t tbfrAckTrackerI = 0;
 
     // Socket struct descriptor
     struct sockaddr_in addr;
@@ -147,7 +149,7 @@ int main()
     // Listen to up to five clients on server socket
     listen(serverSock, 5);
 
-    // We create our transmission data
+    // We create our transmission data using the alphabet. 26 packets total
     tlen = MSGLEN;
     generateAlphabet(tbfrData, tlen);
     
@@ -189,6 +191,14 @@ int main()
         } 
         else 
         {
+            // Check for ACK timeout
+            if (delayCount*10 > ACKTIMEOUT)
+            {
+                // Retransmit any packets we haven't received ACKs back
+                // for yet
+                DelayMsec(1);
+            }
+
             // We are connected to a client already. We start
             // by receiving the message being sent by the client
             rlen = recvfrom(clientSock, rbfrRaw, sizeof (rbfrRaw), 0, NULL,
@@ -197,6 +207,8 @@ int main()
             // Check to see if socket is still alive
             if (rlen > 0) 
             {
+                // Reset Delay Count
+                delayCount = 0;
                 // If the received message first byte is '02' it signifies
                 // a start of message
                 if (rbfrRaw[0] == 2) 
@@ -209,16 +221,18 @@ int main()
                     {                        
                         // Set sequence number P to zero and send LENP 
                         // packets
-                        for(transP=0; transP < LENP; transP++)
+                        for(i=0; i < LENP; i++)
                         {
-                            transM = transP;
-                            tbfrData[transP].sequence = transM;
+                            tbfrData[i].sequence = i;
+                            tbfrDataTracker[tbfrDataTrackerI++] = 
+                                tbfrData[i].sequence;
                             mPORTDClearBits(BIT_0);
                             mPORTDSetBits(BIT_2);   // LED3=1
-                            send(clientSock, &tbfrData[transP], 
+                            send(clientSock, &tbfrData[i], 
                                 sizeof(struct myDataPacket), 0);
                             mPORTDClearBits(BIT_2); // LED3=0 
                         }
+                        DelayMsec(50);
                     }
                 }
                 // If not prefixed we say client is sending back 
@@ -233,32 +247,36 @@ int main()
                     {
                         // Parse the receive buffer for myACK until end of
                         // buffer
-                        while (sizeof(struct myAck)*i < rlen)
+                        i=0;
+                        while (sizeof(struct myACK)*i < rlen)
                         {
                             // Convert the received data into a myAck struct
-                            tbfrAck = (struct myACK *) rbfrRaw+i;
-                            i++;
-                            // Check sequence number and store it into array
-                            recvP++;
+                            tbfrAck = (struct myACK *) rbfrRaw+(i++);
+                            
+                            // Retrieve sequence number and store
+                            tbfrAckTracker[tbfrAckTrackerI++] = 
+                                tbfrAck->sequence;
                         }
+                        temp = tbfrAck->sequence;
                     }                    
-                    // Check if recived is an myDataPacket
+                    // Check if received is an myDataPacket
                     else if (rlen%sizeof(struct myDataPacket)==0)
                     {
+                        i=0;
                         // Parse the receive buffer until end of buffer
                         while (sizeof(struct myDataPacket)*i < rlen)
                         {
                             // Convert the received data into a dataPacket 
                             // struct
-                            rbfrData = (struct myDataPacket *) rbfrRaw+i;
-                            i++;
-                            // Check sequence number and store it into array
-                            recvP++;
+                            rbfrData = (struct myDataPacket *) rbfrRaw+(i++);
+                            // Retrieve sequence number and store
+                            rbfrDataTracker[rbfrDataTrackerI++] = 
+                                rbfrData->sequence;
                         }
                         // Set sequence number P to zero and send LENP packets
-                        for(i=0; i < recvP; i++)
+                        for(i=0; i < rbfrDataTrackerI; i++)
                         {
-                           rbfrAck.sequence = i;
+                           rbfrAck.sequence = rbfrDataTracker[i];
                            rbfrAck.ackChar = 0x06;
                            mPORTDClearBits(BIT_0);
                            mPORTDSetBits(BIT_2);   // LED3=1
@@ -266,7 +284,8 @@ int main()
                                sizeof(struct myACK), 0);
                            mPORTDClearBits(BIT_2); // LED3=0 
                         }
-                        recvP = 0;
+                        rbfrDataTrackerI = 0;
+                        DelayMsec(50);
                     }
                 }
             }
@@ -276,6 +295,13 @@ int main()
                 //
                 closesocket(clientSock);
                 clientSock = SOCKET_ERROR;
+            }
+
+            // If rlen is zero length
+            else
+            {
+                DelayMsec(10);
+                delayCount++;
             }
         }   
     }
