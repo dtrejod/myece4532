@@ -39,9 +39,9 @@
 // Project specific constants
 #define MSGLEN 26
 #define DATALEN 16
-#define LENP 4
+#define LENP 1
 #define LENM 10
-#define PROBERR 0.5
+#define PROBERR 0.1
 #define ACKTIMEOUT 5000 // InMSEC
 
 // We create structs for our message format
@@ -107,6 +107,7 @@ int main()
     uint8_t testStarted = 0;
     int msgSent = 0;
     int offset;
+    int count = 0;
     
     // Socket struct descriptor
     struct sockaddr_in addr;
@@ -226,6 +227,7 @@ int main()
 
                     // Reset total msg sent counter
                     msgSent = 0;
+                    count = 0;
                     testStarted = 1;
 
                     for(tbfrDataTrackerI=0; tbfrDataTrackerI < LENP; 
@@ -435,7 +437,8 @@ int main()
                     send(clientSock, tbfr, 
                         sizeof(struct myDataPacket)*selectiveRepeat, 0);
                     mPORTDClearBits(BIT_2); // LED3=0 
-                    DelayMsec(100);              
+                    DelayMsec(100);
+                    count++;
                 }
             }
         }   
